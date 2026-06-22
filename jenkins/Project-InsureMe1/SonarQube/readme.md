@@ -152,3 +152,107 @@ pipeline {
 }
 
 ```
+
+## Extra alg se ek pipeline(code github se pull karke , docker hub pe push kregi). iska pipeline ka main project se koi lena dena nhi. bas yeah project ko s3 and docker hub main push kse karte smjhne ke liye banaya hai.
+'''grovy 
+pipeline {
+    agent any
+
+    tools {
+        maven 'maven'
+    }
+
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+        S3_BUCKET = "baltigarampanyachi34551"
+        REGION = "ap-south-1"
+        WAR_FILE = "target/Insurance-0.0.1-SNAPSHOT.jar"
+        DOCKER_IMAGE = "sagardockerarise/insure1"
+    }
+
+    stages {
+
+        stage('code-pull') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: '*/main']],
+                    extensions: [],
+                    userRemoteConfigs: [[url: 'https://github.com/mukundDeo9325/Project-InsureMe1.git']]
+                )
+            }
+        }
+
+        stage('code-build') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+
+        stage('code-test') {
+            steps {
+                withSonarQubeEnv('sonar-server') {
+                    sh '''
+                        $SCANNER_HOME/bin/sonar-scanner \
+                        -Dsonar.projectKey=InsureMe \
+                        -Dsonar.projectName=InsureMe \
+                        -Dsonar.sources=src \
+                        -Dsonar.java.binaries=target/classes
+                    '''
+                }
+            }
+        }
+
+        stage('code-test-quality-gate') {
+            steps {
+                script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-cred'
+                }
+            }
+        }
+
+        stage('code-push-to-s3') {
+            steps {
+                withCredentials([aws(
+                    credentialsId: 'aws-cred',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+                    sh 'aws s3 cp ${WAR_FILE} s3://${S3_BUCKET}/Artifacts/ --region ${REGION}'
+                }
+            }
+        }
+
+        stage('docker-image-build') {
+            steps {
+                sh 'docker build -t ${DOCKER_IMAGE}:latest .'
+            }
+        }
+
+        stage('trivy-image-scan') {
+            steps {
+                sh '''
+                    trivy image \
+                    --scanners vuln \
+                    --skip-java-db-update \
+                    ${DOCKER_IMAGE}:latest > trivy-report.txt || true
+                '''
+            }
+        }
+
+        stage('image-push-to-dockerhub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-cred',
+                    usernameVariable: 'DOCKER_HUB_USER',
+                    passwordVariable: 'DOCKER_HUB_PASS'
+                )]) {
+                    sh '''
+                        echo "$DOCKER_HUB_PASS" | docker login -u "$DOCKER_HUB_USER" --password-stdin
+                        docker push ${DOCKER_IMAGE}:latest
+                    '''
+                }
+            }
+        }
+    }
+}
+'''
