@@ -154,7 +154,7 @@ pipeline {
 ```
 
 ## Extra alg se ek pipeline(code github se pull karke , docker hub pe push kregi). iska pipeline ka main project se koi lena dena nhi. bas yeah project ko s3 and docker hub main push kse karte smjhne ke liye banaya hai.
-'''grovy 
+'''groovy 
 pipeline {
     agent any
 
